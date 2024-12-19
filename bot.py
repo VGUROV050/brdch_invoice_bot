@@ -21,27 +21,37 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 SERVICE_ACCOUNT_JSON_BASE64 = os.getenv("SERVICE_ACCOUNT_JSON_BASE64")
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
 FOLDER_ID = os.getenv("FOLDER_ID")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Новая переменная окружения
 
 # Проверка наличия необходимых переменных окружения
-if not TELEGRAM_BOT_TOKEN:
-    raise EnvironmentError("TELEGRAM_BOT_TOKEN is not set")
-if not OPENAI_API_KEY:
-    raise EnvironmentError("OPENAI_API_KEY is not set")
-if not SERVICE_ACCOUNT_JSON_BASE64:
-    raise EnvironmentError("SERVICE_ACCOUNT_JSON_BASE64 is not set")
-if not SPREADSHEET_ID:
-    raise EnvironmentError("SPREADSHEET_ID is not set")
-if not FOLDER_ID:
-    raise EnvironmentError("FOLDER_ID is not set")
+required_env_vars = [
+    "TELEGRAM_BOT_TOKEN",
+    "OPENAI_API_KEY",
+    "SERVICE_ACCOUNT_JSON_BASE64",
+    "SPREADSHEET_ID",
+    "FOLDER_ID",
+    "WEBHOOK_URL"  # Убедитесь, что WEBHOOK_URL установлена
+]
+
+for var in required_env_vars:
+    if not os.getenv(var):
+        raise EnvironmentError(f"{var} is not set")
 
 # Декодируем service_account.json из Base64 и сохраняем локально
-with open("service_account.json", "wb") as f:
-    f.write(base64.b64decode(SERVICE_ACCOUNT_JSON_BASE64))
+try:
+    decoded_json = base64.b64decode(SERVICE_ACCOUNT_JSON_BASE64)
+    with open("service_account.json", "wb") as f:
+        f.write(decoded_json)
+except base64.binascii.Error as e:
+    raise EnvironmentError("Failed to decode SERVICE_ACCOUNT_JSON_BASE64") from e
 
 openai.api_key = OPENAI_API_KEY
 
 # Логирование
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
 # Настройка Google API через сервисный аккаунт
@@ -52,7 +62,9 @@ sheet = gs_client.open_by_key(SPREADSHEET_ID).sheet1
 drive_service = build('drive', 'v3', credentials=creds)
 
 def start(update: Update, context: CallbackContext):
-    update.message.reply_text("Привет! Отправь мне счет (изображение или PDF), я распознаю текст, извлеку нужную информацию и сохраню ее в таблицу и файл на Диск.")
+    update.message.reply_text(
+        "Привет! Отправь мне счет (изображение или PDF), я распознаю текст, извлеку нужную информацию и сохраню ее в таблицу и файл на Диск."
+    )
 
 def handle_file(update: Update, context: CallbackContext):
     # Получаем файл (документ или фото)
@@ -72,17 +84,34 @@ def handle_file(update: Update, context: CallbackContext):
 
     # Выполняем OCR
     if is_pdf:
-        images = convert_from_path(downloaded_path)
+        try:
+            images = convert_from_path(downloaded_path)
+        except Exception as e:
+            logger.error(f"Failed to convert PDF to images: {e}")
+            update.message.reply_text("Произошла ошибка при обработке PDF файла.")
+            os.remove(downloaded_path)
+            return
+
         text_pages = []
         for img in images:
             with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as img_temp:
                 img.save(img_temp.name, 'PNG')
-                page_text = pytesseract.image_to_string(img_temp.name, lang='rus+eng')
+                try:
+                    page_text = pytesseract.image_to_string(img_temp.name, lang='rus+eng')
+                except Exception as e:
+                    logger.error(f"OCR failed on image {img_temp.name}: {e}")
+                    page_text = ""
                 text_pages.append(page_text)
                 os.remove(img_temp.name)
         ocr_text = "\n".join(text_pages)
     else:
-        ocr_text = pytesseract.image_to_string(downloaded_path, lang='rus+eng')
+        try:
+            ocr_text = pytesseract.image_to_string(downloaded_path, lang='rus+eng')
+        except Exception as e:
+            logger.error(f"OCR failed on image {downloaded_path}: {e}")
+            update.message.reply_text("Произошла ошибка при распознавании текста.")
+            os.remove(downloaded_path)
+            return
 
     # Промпт для OpenAI
     prompt = f"""
@@ -98,14 +127,20 @@ Do not include any extra text outside the JSON and do not use code blocks. Here 
 {ocr_text}
     """
 
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0
-    )
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0
+        )
+    except Exception as e:
+        logger.error(f"OpenAI API request failed: {e}")
+        update.message.reply_text("Произошла ошибка при обращении к OpenAI API.")
+        os.remove(downloaded_path)
+        return
 
     content = response.choices[0].message.content.strip()
     try:
@@ -134,20 +169,38 @@ Do not include any extra text outside the JSON and do not use code blocks. Here 
         'parents': [FOLDER_ID]
     }
     media = MediaFileUpload(downloaded_path, resumable=True)
-    uploaded = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-    file_id = uploaded.get('id')
+    try:
+        uploaded = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+        file_id = uploaded.get('id')
+    except Exception as e:
+        logger.error(f"Failed to upload file to Google Drive: {e}")
+        update.message.reply_text("Произошла ошибка при загрузке файла на Google Диск.")
+        os.remove(downloaded_path)
+        return
 
     # Делаем файл общедоступным по ссылке
-    drive_service.permissions().create(
-        fileId=file_id,
-        body={"role": "reader", "type": "anyone"},
-        fields='id'
-    ).execute()
+    try:
+        drive_service.permissions().create(
+            fileId=file_id,
+            body={"role": "reader", "type": "anyone"},
+            fields='id'
+        ).execute()
+    except Exception as e:
+        logger.error(f"Failed to set permissions on Google Drive file: {e}")
+        update.message.reply_text("Произошла ошибка при настройке доступа к файлу на Google Диске.")
+        os.remove(downloaded_path)
+        return
 
     file_link = f"https://drive.google.com/file/d/{file_id}/view?usp=sharing"
 
     # Записываем данные в таблицу (предполагается, что в таблице колонки: A: Supplier, B: Date, C: Total, D: VAT, E: Link)
-    sheet.append_row([supplier, date, total, vat, file_link])
+    try:
+        sheet.append_row([supplier, date, total, vat, file_link])
+    except Exception as e:
+        logger.error(f"Failed to append row to Google Sheets: {e}")
+        update.message.reply_text("Произошла ошибка при записи данных в Google Таблицу.")
+        os.remove(downloaded_path)
+        return
 
     update.message.reply_text("Данные извлечены и записаны в таблицу, файл переименован и сохранен на Диск.")
 
@@ -155,27 +208,23 @@ Do not include any extra text outside the JSON and do not use code blocks. Here 
 
 def main():
     updater = Updater(TELEGRAM_BOT_TOKEN, use_context=True)
-    
+
     # Установка вебхука
-    webhook_url = os.getenv("WEBHOOK_URL")
-    if not webhook_url:
-        raise EnvironmentError("WEBHOOK_URL is not set")
-    
-    # Установите вебхук на Telegram
-    updater.bot.set_webhook(webhook_url)
+    logger.info(f"Setting webhook to: {WEBHOOK_URL}")
+    updater.bot.set_webhook(WEBHOOK_URL)
 
     dp = updater.dispatcher
 
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(MessageHandler(Filters.document | Filters.photo, handle_file))
 
-  # Запуск вебхука
+    # Запуск вебхука
     updater.start_webhook(
         listen="0.0.0.0",
         port=int(os.environ.get('PORT', 8443)),
         url_path="webhook"
     )
-    updater.bot.set_webhook(webhook_url)
+    # updater.bot.set_webhook(WEBHOOK_URL)  # Удалите этот вызов, если он дублируется
 
     updater.idle()
 
