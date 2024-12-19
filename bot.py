@@ -21,7 +21,6 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 SERVICE_ACCOUNT_JSON_BASE64 = os.getenv("SERVICE_ACCOUNT_JSON_BASE64")
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
 FOLDER_ID = os.getenv("FOLDER_ID")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Новая переменная окружения
 
 # Проверка наличия необходимых переменных окружения
 required_env_vars = [
@@ -29,8 +28,7 @@ required_env_vars = [
     "OPENAI_API_KEY",
     "SERVICE_ACCOUNT_JSON_BASE64",
     "SPREADSHEET_ID",
-    "FOLDER_ID",
-    "WEBHOOK_URL"  # Убедитесь, что WEBHOOK_URL установлена
+    "FOLDER_ID"
 ]
 
 for var in required_env_vars:
@@ -207,25 +205,24 @@ Do not include any extra text outside the JSON and do not use code blocks. Here 
     os.remove(downloaded_path)
 
 def main():
+    # Создаём Updater и передаём ему токен вашего бота.
     updater = Updater(TELEGRAM_BOT_TOKEN, use_context=True)
 
-    # Установка вебхука
-    logger.info(f"Setting webhook to: {WEBHOOK_URL}")
-    updater.bot.set_webhook(WEBHOOK_URL)
-
+    # Получаем диспетчер для регистрации обработчиков
     dp = updater.dispatcher
 
+    # Регистрируем обработчик команды /start
     dp.add_handler(CommandHandler("start", start))
+
+    # Регистрируем обработчик сообщений с файлами (документы и фотографии)
     dp.add_handler(MessageHandler(Filters.document | Filters.photo, handle_file))
 
-    # Запуск вебхука
-    updater.start_webhook(
-        listen="0.0.0.0",
-        port=int(os.environ.get('PORT', 8443)),
-        url_path="webhook"
-    )
-    # updater.bot.set_webhook(WEBHOOK_URL)  # Удалите этот вызов, если он дублируется
+    # Начинаем получать обновления с помощью длинного опроса
+    updater.start_polling()
 
+    logger.info("Бот запущен и готов к работе.")
+
+    # Блокируем программу до остановки её пользователем
     updater.idle()
 
 if __name__ == '__main__':
