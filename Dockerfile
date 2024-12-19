@@ -17,6 +17,9 @@ WORKDIR /app
 # Копируем файл зависимостей
 COPY requirements.txt .
 
+# Обновляем pip до последней версии
+RUN pip install --upgrade pip
+
 # Устанавливаем зависимости Python
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -25,3 +28,4 @@ COPY . .
 
 # Указываем команду для запуска бота
 CMD ["python", "bot.py"]
+
