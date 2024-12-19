@@ -155,6 +155,10 @@ Do not include any extra text outside the JSON and do not use code blocks. Here 
 
 def main():
     updater = Updater(TELEGRAM_BOT_TOKEN, use_context=True)
+
+    # Удаление существующего вебхука
+    updater.bot.set_webhook(url=None)
+    
     dp = updater.dispatcher
 
     dp.add_handler(CommandHandler("start", start))
