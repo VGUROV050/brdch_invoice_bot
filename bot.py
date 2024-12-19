@@ -155,16 +155,28 @@ Do not include any extra text outside the JSON and do not use code blocks. Here 
 
 def main():
     updater = Updater(TELEGRAM_BOT_TOKEN, use_context=True)
-
-    # Удаление существующего вебхука
-    updater.bot.set_webhook(url=None)
     
+    # Установка вебхука
+    webhook_url = os.getenv("WEBHOOK_URL")
+    if not webhook_url:
+        raise EnvironmentError("WEBHOOK_URL is not set")
+    
+    # Установите вебхук на Telegram
+    updater.bot.set_webhook(webhook_url)
+
     dp = updater.dispatcher
 
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(MessageHandler(Filters.document | Filters.photo, handle_file))
 
-    updater.start_polling()
+  # Запуск вебхука
+    updater.start_webhook(
+        listen="0.0.0.0",
+        port=int(os.environ.get('PORT', 8443)),
+        url_path="webhook"
+    )
+    updater.bot.set_webhook(webhook_url)
+
     updater.idle()
 
 if __name__ == '__main__':
