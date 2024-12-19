@@ -19,9 +19,10 @@ import openai
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 SERVICE_ACCOUNT_JSON_BASE64 = os.getenv("SERVICE_ACCOUNT_JSON_BASE64")
-SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")  # Идентификатор вашей Google Таблицы
-FOLDER_ID = os.getenv("FOLDER_ID")  # ID папки на Google Диске
+SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
+FOLDER_ID = os.getenv("FOLDER_ID")
 
+# Проверка наличия необходимых переменных окружения
 if not TELEGRAM_BOT_TOKEN:
     raise EnvironmentError("TELEGRAM_BOT_TOKEN is not set")
 if not OPENAI_API_KEY:
@@ -95,7 +96,7 @@ I will provide you with raw text of an invoice. You will respond ONLY with JSON 
 
 Do not include any extra text outside the JSON and do not use code blocks. Here is the invoice text:
 {ocr_text}
-"""
+    """
 
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
