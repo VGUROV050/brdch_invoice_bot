@@ -4,6 +4,7 @@ import pytesseract
 import tempfile
 import base64
 import json
+import requests
 
 from telegram import Update
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
@@ -44,6 +45,19 @@ except base64.binascii.Error as e:
     raise EnvironmentError("Failed to decode SERVICE_ACCOUNT_JSON_BASE64") from e
 
 openai.api_key = OPENAI_API_KEY
+
+
+def test_openai_connection():
+    try:
+        response = requests.get("https://api.openai.com/v1/models", headers={
+            "Authorization": f"Bearer {OPENAI_API_KEY}"
+        }, timeout=10)
+        if response.status_code == 200:
+            logger.info("Успешное подключение к OpenAI API.")
+        else:
+            logger.error(f"Ошибка подключения к OpenAI API: {response.status_code} - {response.text}")
+    except Exception as e:
+        logger.error(f"Не удалось подключиться к OpenAI API: {e}")
 
 # Логирование
 logging.basicConfig(
@@ -221,6 +235,9 @@ def main():
     updater.start_polling()
 
     logger.info("Бот запущен и готов к работе.")
+
+    # Вызовите функцию при запуске бота
+    test_openai_connection()
 
     # Блокируем программу до остановки её пользователем
     updater.idle()
